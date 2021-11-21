@@ -1,0 +1,78 @@
+#!/bin/bash
+set -eo pipefail
+
+current_branch() {
+  git rev-parse --abbrev-ref HEAD
+}
+
+pr() {
+  gh pr view $(current_branch) --json number -q '.number'
+}
+
+git_owner_user() {
+  gh repo view --json owner,name -q '(.owner.login) + "/" + (.name)'
+}
+
+display_help() {
+  cat <<-EOF
+
+  usage:
+    gh merge-pr [COMMANDS]
+
+  commands:
+    gh merge-pr               Squash and merges the PR associated to the current branch
+    gh merge-pr <pr_number>   Squash and merges the given PR number
+
+  [options]
+    -h, --help                Display the help information
+
+EOF
+  exit 0
+}
+
+merge() {
+  pr=$1
+  if [ -z $pr ]; then
+      pr=$(pr)
+  fi
+  echo "Mergin PR $pr"
+  
+  tmp="/tmp/.gh-merge-pr"
+  body="$tmp/body.txt"
+  
+  rm -rf $tmp
+  mkdir -p $tmp
+
+  gh api repos/$(git_owner_user)/pulls/$pr -q ".body" | sed '/<!--.*-->/d' | sed '/<!--/,/-->/d' > $body
+
+  echo "Using PR body:"
+  echo "--"
+  cat $body
+  echo "--"
+
+  echo -n "Continue (y/n): "
+  read yn
+
+  case $yn in
+    y | Y)
+      echo "Merge"
+      gh pr merge $pr -sdF $body
+      ;;
+    *)
+      echo "Abort" 
+      exit 1
+      ;;
+  esac
+}
+
+case $1 in
+  -h | --help)
+    display_help
+    exit 0
+    ;;
+  *)
+    ;;
+esac
+
+merge $@
+
